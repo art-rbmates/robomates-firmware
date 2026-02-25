@@ -1,0 +1,21 @@
+.pio
+.vscode
+logs/
+
+# Build artifacts
+*.o
+*.obj
+*.bin
+*.elf
+*.hex
+*.map
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor files
+*.swp
+*.swo
+*~
