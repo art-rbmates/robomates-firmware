@@ -51,7 +51,7 @@ pio run -e robot -t upload
 | **Web Control Center (HQ)** | [hq.rbmates.com](https://hq.rbmates.com) |
 | **3D Models Library** | [3d.rbmates.com](https://3d.rbmates.com) |
 | **Shop** | [rbmates.com](https://rbmates.com) |
-| **HQ Source Code** | [robomates-web-hq](https://github.com/user/robomates-web-hq) |
+| **HQ Source Code** | [robomates-web-hq](https://github.com/art-rbmates/robomates-hq) |
 
 ## Supported Controllers
 
