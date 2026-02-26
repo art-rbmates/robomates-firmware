@@ -2,11 +2,13 @@
 #define CONFIG_H
 
 // ===== FIRMWARE VERSION =====
-#define FIRMWARE_VERSION 0x000B
+#define FIRMWARE_VERSION 0x000C
 
 #define RESET_CALIBRATION_FLAG false
 #define CRYPTO_DEBUG_MODE false
+#ifndef DISABLE_CC1101
 #define DISABLE_CC1101 false
+#endif
 
 // ----- Battery configuration -----
 #define BATTERY_ADC_PIN 36
@@ -162,7 +164,9 @@ enum LEDPositions {
 #define DATA_STRUCTURE_CANARY_END 0xCD
 
 // ----- CC1101 configuration -----
+#ifndef CC1101_FREQUENCY
 #define CC1101_FREQUENCY           869.525
+#endif
 #define CC1101_BIT_RATE            38.4    // kbps
 #define CC1101_FREQUENCY_DEVIATION 20.0     // kHz
 #define CC1101_RX_BANDWIDTH        135.0    // kHz

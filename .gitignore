@@ -15,6 +15,9 @@ logs/
 Thumbs.db
 Desktop.ini
 
+# Scripts (local build/deploy utilities)
+scripts/
+
 # Editor files
 *.swp
 *.swo

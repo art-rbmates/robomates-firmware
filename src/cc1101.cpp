@@ -104,20 +104,20 @@ void setReceivedFlag(void) {
 
 void MyCC1101::init() {
     
-    if (DISABLE_CC1101) {
-        return;
-    }
-
-    Logger::info(MODULE, "Initializing CC1101 with RadioLib...");
-    
     // Verify message struct sizes at compile time
     static_assert(sizeof(PingMessage) == MSG_SIZE_PING, "PingMessage size mismatch!");
-    // UpdateStatusMessage is now variable length (18-243 bytes), no static size check
     static_assert(sizeof(UpdateStatusRobotEntry) == MSG_SIZE_UPDATE_STATUS_ROBOT_ENTRY, "UpdateStatusRobotEntry size mismatch!");
     static_assert(sizeof(ScanMessage) == MSG_SIZE_SCAN, "ScanMessage size mismatch!");
     
     cryptoId = getCryptoId();
     Logger::infof(MODULE, "Crypto ID: 0x%08X", cryptoId);
+
+    if (DISABLE_CC1101) {
+        Logger::info(MODULE, "CC1101 disabled - skipping radio initialization");
+        return;
+    }
+
+    Logger::info(MODULE, "Initializing CC1101 with RadioLib...");
 
     // Initialize SPI with correct pins from config.h
     SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, CS_PIN);
@@ -260,6 +260,7 @@ uint8_t MyCC1101::isValidData(const uint8_t* data, size_t length) {
 void MyCC1101::update() {
 
     if (DISABLE_CC1101) {
+        sendPing();
         return;
     }
 
@@ -905,10 +906,12 @@ void MyCC1101::sendPing() {
         BLEServer::sendPingToCentral(msg);
     }
     
-    Logger::debugf(MODULE, "Sending PING to RF, crypto_id=0x%08X, name=%s, battery_enc=%d, temps=[%d,%d,%d]C",
-                  cryptoId, name, msg.robot_battery, msg.temp_main, msg.temp_right, msg.temp_left);
-    queueRfSend(reinterpret_cast<const uint8_t*>(&msg), sizeof(msg), RF_POWER_LONG_RANGE);
-    statsTxPing++;
+    if (!DISABLE_CC1101) {
+        Logger::debugf(MODULE, "Sending PING to RF, crypto_id=0x%08X, name=%s, battery_enc=%d, temps=[%d,%d,%d]C",
+                      cryptoId, name, msg.robot_battery, msg.temp_main, msg.temp_right, msg.temp_left);
+        queueRfSend(reinterpret_cast<const uint8_t*>(&msg), sizeof(msg), RF_POWER_LONG_RANGE);
+        statsTxPing++;
+    }
 }
 
 void MyCC1101::sendScan() {

@@ -213,11 +213,12 @@ void robot_setup() {
     heap_caps_check_integrity_all(true);
     
     // === Start CC1101 on dedicated Core 0 task ===
-    // Ensures RF receive/transmit is never blocked by BLE or serial processing
+    // When CC1101 is disabled, this task only handles BLE ping timing
+    // When enabled, it handles full RF receive/transmit independent of BLE/serial
     BaseType_t res2 = xTaskCreatePinnedToCore(
         cc1101Task,        // Task function
         "CC1101Task",      // Name
-        8192,              // Stack (8KB - CC1101 uses stack for packet buffers)
+        DISABLE_CC1101 ? 4096 : 8192, // 4KB when disabled (BLE pings only), 8KB when enabled (packet buffers)
         NULL,              // Parameters
         2,                 // Priority (lower than balance at 5, higher than Arduino loop at 1)
         &cc1101TaskHandle, // Handle
@@ -229,7 +230,7 @@ void robot_setup() {
         LEDController::showLEDs();
         while (true) { delay(1000); }  // Halt on critical error
     }
-    Logger::info("MAIN", "✓ CC1101 task started on Core 0");
+    Logger::infof("MAIN", "✓ CC1101 task started on Core 0%s", DISABLE_CC1101 ? " (sub-GHz disabled, BLE pings only)" : "");
     
     Logger::info("MAIN", "✓ Communications will run in loop() on Core 1");
 
