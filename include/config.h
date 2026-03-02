@@ -30,7 +30,7 @@
 #define TEMP_SENSOR_READ_INTERVAL_MS 3000  // Interval between reading each sensor (ms)
 #define TEMP_LIMIT_MAIN_BOARD_CELSIUS 55   // Maximum main board temperature before thermal shutdown
 #define TEMP_LIMIT_MOTOR_CELSIUS 45        // Maximum motor board temperature before thermal shutdown
-#define TEMP_SENSOR_REQUIRED false         // If true: halt on boot if sensors missing, block motors if sensors stop responding
+#define TEMP_SENSOR_REQUIRED true          // If true: halt on boot if sensors missing, block motors if sensors stop responding
                                            // If false: warnings only, robot operates without temperature protection
 #define TEMP_SENSOR_FAILURE_TIMEOUT_MS 10000  // Time (ms) without a successful read before declaring sensor failure
 
