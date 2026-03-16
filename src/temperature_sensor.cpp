@@ -39,6 +39,38 @@ unsigned long TemperatureSensor::s_leftLastSuccessMs = 0;
 // Rotating sensor index - read one sensor per update cycle to avoid I2C bus contention
 static uint8_t s_currentSensorIndex = 0;
 
+// Attempt to read a sensor with retries on I2C lock contention or read failure.
+// Acquires/releases the I2C lock on each attempt so the bus isn't held during delays.
+static bool readSensorWithRetries(Adafruit_TMP117* sensor, sensors_event_t* event,
+                                   bool (*tryLockFn)(), void (*unlockFn)(),
+                                   const char* sensorName) {
+    for (uint8_t attempt = 0; attempt < TEMP_SENSOR_MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+            delay(TEMP_SENSOR_RETRY_DELAY_MS);
+        }
+
+        if (!tryLockFn()) {
+            Logger::debugf(MODULE, "%s: I2C bus locked (attempt %d/%d)",
+                          sensorName, attempt + 1, TEMP_SENSOR_MAX_RETRIES);
+            continue;
+        }
+
+        bool success = sensor->getEvent(event);
+        unlockFn();
+
+        if (success) {
+            if (attempt > 0) {
+                Logger::debugf(MODULE, "%s: read succeeded on retry %d", sensorName, attempt + 1);
+            }
+            return true;
+        }
+
+        Logger::debugf(MODULE, "%s: read failed (attempt %d/%d)",
+                      sensorName, attempt + 1, TEMP_SENSOR_MAX_RETRIES);
+    }
+    return false;
+}
+
 // Configure a TMP117 sensor for fast reads (1X averaging = ~15.5ms conversion time)
 static void configureSensorForFastReads(Adafruit_TMP117* sensor) {
     // Use single sample (no averaging) for fastest conversion (~15.5ms)
@@ -131,86 +163,63 @@ void TemperatureSensor::update() {
     
     sensors_event_t temp;
     
-    // Read only ONE sensor per update cycle, rotating through them
-    // This prevents I2C bus contention issues
-    // Use tryLock() for atomic check-and-acquire to avoid race conditions between cores
+    // Read only ONE sensor per update cycle, rotating through them.
+    // Each read uses retries (up to TEMP_SENSOR_MAX_RETRIES) with short delays
+    // to handle transient I2C bus contention without waiting for the next cycle.
     switch (s_currentSensorIndex) {
         case 0:
-            // Read main board sensor (Wire bus - shared with Motor2 encoder, IMU)
             if (s_mainSensor != nullptr) {
-                // Atomically try to acquire the primary I2C bus lock
-                if (SharedI2C::tryLockPrimary()) {
-                    if (s_mainSensor->getEvent(&temp)) {
-                        int8_t newTemp = (int8_t)roundf(temp.temperature);
-                        // Sanity check: reject readings that are clearly wrong
-                        // (e.g., exactly 0 when previous reading was significantly different)
-                        if (newTemp != 0 || s_mainBoardTemp == INT8_MIN || abs(s_mainBoardTemp) <= 5) {
-                            s_mainBoardTemp = newTemp;
-                            s_mainLastSuccessMs = now;
-                            Logger::debugf(MODULE, "Main board temp: %d°C", s_mainBoardTemp);
-                        } else {
-                            Logger::debugf(MODULE, "Main board temp: rejected suspicious 0°C (prev: %d°C)", s_mainBoardTemp);
-                        }
+                if (readSensorWithRetries(s_mainSensor, &temp, SharedI2C::tryLockPrimary, SharedI2C::unlockPrimary, "Main")) {
+                    int8_t newTemp = (int8_t)roundf(temp.temperature);
+                    if (newTemp != 0 || s_mainBoardTemp == INT8_MIN || abs(s_mainBoardTemp) <= 5) {
+                        s_mainBoardTemp = newTemp;
+                        s_mainLastSuccessMs = now;
+                        Logger::debugf(MODULE, "Main board temp: %d°C", s_mainBoardTemp);
                     } else {
-                        Logger::warningf(MODULE, "Failed to read main board sensor (last success %lums ago)",
-                                        s_mainLastSuccessMs > 0 ? (now - s_mainLastSuccessMs) : 0UL);
+                        Logger::debugf(MODULE, "Main board temp: rejected suspicious 0°C (prev: %d°C)", s_mainBoardTemp);
                     }
-                    SharedI2C::unlockPrimary();
                 } else {
-                    Logger::debug(MODULE, "Primary I2C locked, skipping main board sensor read");
+                    Logger::warningf(MODULE, "Failed to read main board sensor after %d attempts (last success %lums ago)",
+                                    TEMP_SENSOR_MAX_RETRIES,
+                                    s_mainLastSuccessMs > 0 ? (now - s_mainLastSuccessMs) : 0UL);
                 }
             }
             break;
             
         case 1:
-            // Read right board sensor (Wire bus - shared with Motor2 encoder, IMU)
             if (s_rightSensor != nullptr) {
-                // Atomically try to acquire the primary I2C bus lock
-                if (SharedI2C::tryLockPrimary()) {
-                    if (s_rightSensor->getEvent(&temp)) {
-                        int8_t newTemp = (int8_t)roundf(temp.temperature);
-                        // Sanity check: reject readings that are clearly wrong
-                        if (newTemp != 0 || s_rightBoardTemp == INT8_MIN || abs(s_rightBoardTemp) <= 5) {
-                            s_rightBoardTemp = newTemp;
-                            s_rightLastSuccessMs = now;
-                            Logger::debugf(MODULE, "Right board temp: %d°C", s_rightBoardTemp);
-                        } else {
-                            Logger::debugf(MODULE, "Right board temp: rejected suspicious 0°C (prev: %d°C)", s_rightBoardTemp);
-                        }
+                if (readSensorWithRetries(s_rightSensor, &temp, SharedI2C::tryLockPrimary, SharedI2C::unlockPrimary, "Right")) {
+                    int8_t newTemp = (int8_t)roundf(temp.temperature);
+                    if (newTemp != 0 || s_rightBoardTemp == INT8_MIN || abs(s_rightBoardTemp) <= 5) {
+                        s_rightBoardTemp = newTemp;
+                        s_rightLastSuccessMs = now;
+                        Logger::debugf(MODULE, "Right board temp: %d°C", s_rightBoardTemp);
                     } else {
-                        Logger::warningf(MODULE, "Failed to read right board sensor (last success %lums ago)",
-                                        s_rightLastSuccessMs > 0 ? (now - s_rightLastSuccessMs) : 0UL);
+                        Logger::debugf(MODULE, "Right board temp: rejected suspicious 0°C (prev: %d°C)", s_rightBoardTemp);
                     }
-                    SharedI2C::unlockPrimary();
                 } else {
-                    Logger::debug(MODULE, "Primary I2C locked, skipping right board sensor read");
+                    Logger::warningf(MODULE, "Failed to read right board sensor after %d attempts (last success %lums ago)",
+                                    TEMP_SENSOR_MAX_RETRIES,
+                                    s_rightLastSuccessMs > 0 ? (now - s_rightLastSuccessMs) : 0UL);
                 }
             }
             break;
             
         case 2:
-            // Read left board sensor (SharedI2C bus - shared with Motor1 encoder, crypto)
             if (s_leftSensor != nullptr) {
-                // Atomically try to acquire the SharedI2C bus lock
-                if (SharedI2C::tryLock()) {
-                    if (s_leftSensor->getEvent(&temp)) {
-                        int8_t newTemp = (int8_t)roundf(temp.temperature);
-                        // Sanity check: reject readings that are clearly wrong
-                        if (newTemp != 0 || s_leftBoardTemp == INT8_MIN || abs(s_leftBoardTemp) <= 5) {
-                            s_leftBoardTemp = newTemp;
-                            s_leftLastSuccessMs = now;
-                            Logger::debugf(MODULE, "Left board temp: %d°C", s_leftBoardTemp);
-                        } else {
-                            Logger::debugf(MODULE, "Left board temp: rejected suspicious 0°C (prev: %d°C)", s_leftBoardTemp);
-                        }
+                if (readSensorWithRetries(s_leftSensor, &temp, SharedI2C::tryLock, SharedI2C::unlock, "Left")) {
+                    int8_t newTemp = (int8_t)roundf(temp.temperature);
+                    if (newTemp != 0 || s_leftBoardTemp == INT8_MIN || abs(s_leftBoardTemp) <= 5) {
+                        s_leftBoardTemp = newTemp;
+                        s_leftLastSuccessMs = now;
+                        Logger::debugf(MODULE, "Left board temp: %d°C", s_leftBoardTemp);
                     } else {
-                        Logger::warningf(MODULE, "Failed to read left board sensor (last success %lums ago)",
-                                        s_leftLastSuccessMs > 0 ? (now - s_leftLastSuccessMs) : 0UL);
+                        Logger::debugf(MODULE, "Left board temp: rejected suspicious 0°C (prev: %d°C)", s_leftBoardTemp);
                     }
-                    SharedI2C::unlock();
                 } else {
-                    // Bus is locked, skip this read but keep previous value
-                    Logger::debug(MODULE, "SharedI2C locked, skipping left board sensor read");
+                    Logger::warningf(MODULE, "Failed to read left board sensor after %d attempts (last success %lums ago)",
+                                    TEMP_SENSOR_MAX_RETRIES,
+                                    s_leftLastSuccessMs > 0 ? (now - s_leftLastSuccessMs) : 0UL);
                 }
             }
             break;

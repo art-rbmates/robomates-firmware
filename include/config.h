@@ -27,12 +27,14 @@
 #define BATTERY_DISCHARGE_WARNING_WINDOW_MS 300000    // Time window (ms) to remember a low-voltage event (5 minutes)
 
 // ----- Temperature sensor configuration -----
-#define TEMP_SENSOR_READ_INTERVAL_MS 3000  // Interval between reading each sensor (ms)
+#define TEMP_SENSOR_READ_INTERVAL_MS 1000  // Interval between reading each sensor (ms)
 #define TEMP_LIMIT_MAIN_BOARD_CELSIUS 55   // Maximum main board temperature before thermal shutdown
 #define TEMP_LIMIT_MOTOR_CELSIUS 45        // Maximum motor board temperature before thermal shutdown
 #define TEMP_SENSOR_REQUIRED true          // If true: halt on boot if sensors missing, block motors if sensors stop responding
                                            // If false: warnings only, robot operates without temperature protection
-#define TEMP_SENSOR_FAILURE_TIMEOUT_MS 10000  // Time (ms) without a successful read before declaring sensor failure
+#define TEMP_SENSOR_FAILURE_TIMEOUT_MS 25000  // Time (ms) without a successful read before declaring sensor failure
+#define TEMP_SENSOR_MAX_RETRIES 3             // Max read attempts per sensor per update cycle
+#define TEMP_SENSOR_RETRY_DELAY_MS 100        // Delay (ms) between retry attempts
 
 // ----- Crypto configuration -----
 #define ATECC_I2C_ADDR 0x60

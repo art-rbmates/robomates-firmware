@@ -59,4 +59,4 @@ PS5 DualSense, PS4 DualShock, Xbox Wireless, Nintendo Switch Pro, Joy-Con, 8BitD
 
 ## License
 
-Robomates firmware is licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). See [LICENSE](LICENSE) for the full text.
+Robomates firmware is licensed under [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.html). See [LICENSE](LICENSE) for the full text.
