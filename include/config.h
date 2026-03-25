@@ -2,7 +2,7 @@
 #define CONFIG_H
 
 // ===== FIRMWARE VERSION =====
-#define FIRMWARE_VERSION 0x000E
+#define FIRMWARE_VERSION 0x000F
 
 #define RESET_CALIBRATION_FLAG false
 #define CRYPTO_DEBUG_MODE false

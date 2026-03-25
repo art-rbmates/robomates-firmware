@@ -44,6 +44,58 @@ void MotorHardware::setupMotorHardware() {
     motor2.useMonitoring(Serial);
     
     Logger::info(MODULE, "Motor hardware setup complete");
+
+    logAS5600Diagnostics(SharedI2C::getBus(), "Motor1/Left");
+    logAS5600Diagnostics(Wire, "Motor2/Right");
+}
+
+void MotorHardware::logAS5600Diagnostics(TwoWire& bus, const char* label) {
+    const uint8_t AS5600_ADDR = 0x36;
+    const uint8_t REG_STATUS    = 0x0B;
+    const uint8_t REG_AGC       = 0x1A;
+    const uint8_t REG_MAGNITUDE = 0x1B;
+
+    auto readReg8 = [&](uint8_t reg) -> int16_t {
+        bus.beginTransmission(AS5600_ADDR);
+        bus.write(reg);
+        if (bus.endTransmission(false) != 0) return -1;
+        if (bus.requestFrom(AS5600_ADDR, (uint8_t)1) != 1) return -1;
+        return bus.read();
+    };
+
+    auto readReg16 = [&](uint8_t reg) -> int32_t {
+        bus.beginTransmission(AS5600_ADDR);
+        bus.write(reg);
+        if (bus.endTransmission(false) != 0) return -1;
+        if (bus.requestFrom(AS5600_ADDR, (uint8_t)2) != 2) return -1;
+        uint16_t hi = bus.read();
+        uint16_t lo = bus.read();
+        return ((hi & 0x0F) << 8) | lo;
+    };
+
+    int16_t status = readReg8(REG_STATUS);
+    int16_t agc    = readReg8(REG_AGC);
+    int32_t mag    = readReg16(REG_MAGNITUDE);
+
+    if (status < 0 || agc < 0 || mag < 0) {
+        Logger::warningf(MODULE, "AS5600 [%s]: I2C read failed (status=%d agc=%d mag=%ld)",
+                         label, status, agc, mag);
+        return;
+    }
+
+    bool md = (status >> 5) & 1;
+    bool ml = (status >> 4) & 1;
+    bool mh = (status >> 3) & 1;
+
+    Logger::infof(MODULE, "AS5600 [%s]: STATUS=0x%02X (MD=%d ML=%d MH=%d) AGC=%d MAGNITUDE=%ld",
+                  label, status, md, ml, mh, agc, mag);
+
+    if (!md)
+        Logger::warning(MODULE, "  -> No magnet detected!");
+    if (ml)
+        Logger::warning(MODULE, "  -> Magnet too WEAK (AGC at max gain)");
+    if (mh)
+        Logger::warning(MODULE, "  -> Magnet too STRONG (AGC at min gain)");
 }
 
 void MotorHardware::initializeMotors() {

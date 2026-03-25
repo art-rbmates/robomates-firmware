@@ -4,6 +4,7 @@
 #include "motor_hardware.h"
 #include "imu.h"
 #include "shared_data.h"
+#include "shared_i2c.h"
 #include "central_controller.h"
 #include "mymath.h"
 #include "melody_player.h"
@@ -139,21 +140,26 @@ void BalanceController::update() {
     static bool lastSensorFailureState = false;
     bool actualOverheat = TemperatureSensor::isMainBoardOverheating() || TemperatureSensor::isMotorOverheating();
     bool sensorFailure = TEMP_SENSOR_REQUIRED && TemperatureSensor::hasSensorFailure();
-    bool thermalShutdown = actualOverheat || sensorFailure;
+    bool thermalShutdown = (TEMP_SENSOR_REQUIRED && actualOverheat) || sensorFailure;
     
     if (actualOverheat && !lastOverheatState) {
-        // Just entered actual overheat state - log details
-        if (TemperatureSensor::isMainBoardOverheating()) {
-            Logger::errorf(MODULE, "THERMAL SHUTDOWN: Main board temp %d°C >= %d°C limit! Motors disabled.",
-                           TemperatureSensor::getMainBoardTemp(), TEMP_LIMIT_MAIN_BOARD_CELSIUS);
-        }
-        if (TemperatureSensor::isMotorOverheating()) {
-            Logger::errorf(MODULE, "THERMAL SHUTDOWN: Motor temp (L:%d°C R:%d°C) >= %d°C limit! Motors disabled.",
-                           TemperatureSensor::getLeftBoardTemp(), TemperatureSensor::getRightBoardTemp(),
-                           TEMP_LIMIT_MOTOR_CELSIUS);
+        if (TEMP_SENSOR_REQUIRED) {
+            if (TemperatureSensor::isMainBoardOverheating()) {
+                Logger::errorf(MODULE, "THERMAL SHUTDOWN: Main board temp %d°C >= %d°C limit! Motors disabled.",
+                               TemperatureSensor::getMainBoardTemp(), TEMP_LIMIT_MAIN_BOARD_CELSIUS);
+            }
+            if (TemperatureSensor::isMotorOverheating()) {
+                Logger::errorf(MODULE, "THERMAL SHUTDOWN: Motor temp (L:%d°C R:%d°C) >= %d°C limit! Motors disabled.",
+                               TemperatureSensor::getLeftBoardTemp(), TemperatureSensor::getRightBoardTemp(),
+                               TEMP_LIMIT_MOTOR_CELSIUS);
+            }
+        } else {
+            Logger::warningf(MODULE, "Overheating detected (TEMP_SENSOR_REQUIRED=false, motors NOT disabled): main=%d°C, L=%d°C, R=%d°C",
+                           TemperatureSensor::getMainBoardTemp(),
+                           TemperatureSensor::getLeftBoardTemp(),
+                           TemperatureSensor::getRightBoardTemp());
         }
     } else if (actualOverheat) {
-        // Still overheating - periodic warning every ~10s (balance runs at ~100Hz, 1000 iterations)
         static uint32_t overheatLogCounter = 0;
         if (++overheatLogCounter >= 1000) {
             overheatLogCounter = 0;
@@ -185,7 +191,9 @@ void BalanceController::update() {
     lastSensorFailureState = sensorFailure;
     
     // Read IMU data once - used for both fall detection and balance control
-    bool imuHasData = IMU::hasData();
+    // Skip if primary I2C bus is locked (temp sensor read in progress on Wire)
+    // to avoid crashing Wire's internal mutex from concurrent access
+    bool imuHasData = !SharedI2C::isPrimaryLocked() && IMU::hasData();
     float pitch = 0;
     float roll = 0;
     

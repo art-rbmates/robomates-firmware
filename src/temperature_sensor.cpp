@@ -295,14 +295,15 @@ bool TemperatureSensor::hasSensorFailure() {
 }
 
 bool TemperatureSensor::isOverheating() {
-    // Always check actual temperature limits
+    if (!TEMP_SENSOR_REQUIRED) {
+        return false;
+    }
+    
     if (isMainBoardOverheating() || isMotorOverheating()) {
         return true;
     }
     
-    // When TEMP_SENSOR_REQUIRED, also treat sensor failure as overheating
-    // (prevents operating without thermal protection)
-    if (TEMP_SENSOR_REQUIRED && hasSensorFailure()) {
+    if (hasSensorFailure()) {
         return true;
     }
     

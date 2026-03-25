@@ -49,6 +49,7 @@ private:
     static MagneticSensorI2C sensor2;
     
     static void setupMotorHardware();
+    static void logAS5600Diagnostics(TwoWire& bus, const char* label);
 };
 
 #endif // MOTOR_HARDWARE_H
