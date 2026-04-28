@@ -86,6 +86,7 @@ static void on_bt_thread(bt_fn_t fn){
 
 // Static member initialization
 bool BLEServer::connected = false;
+bool BLEServer::hqClientVerified = false;
 uint16_t BLEServer::conHandle = HCI_CON_HANDLE_INVALID;
 uint16_t BLEServer::txValueHandle = 0;
 uint16_t BLEServer::rxValueHandle = 0;
@@ -176,10 +177,10 @@ void BLEServer::init() {
     hciEventCb.callback = &hciEventCallback;
     hci_add_event_handler(&hciEventCb);
     
-    // No pairing for PoC
-    sm_init();
-    sm_set_io_capabilities(IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
-    sm_set_authentication_requirements(0);
+    // SM (Security Manager) is configured by Bluepad32 for BLE gamepad pairing.
+    // BLEServer's GATT service uses ATT_SECURITY_NONE, so no SM config needed here.
+    // Calling sm_init() / sm_set_authentication_requirements(0) here would override
+    // Bluepad32's SM settings and break BLE gamepad bonding (e.g. Xbox controllers).
     
     // Init notification callback registration
     notifyCbReg.callback = &notifyCallback;
@@ -270,7 +271,8 @@ static uint16_t g_handleToDisconnect = HCI_CON_HANDLE_INVALID;
 
 void BLEServer::update() {
     // Check for BLE connection timeout (no data received for 5 seconds)
-    if (connected && conHandle != HCI_CON_HANDLE_INVALID) {
+    // Only applies to verified HQ clients - not BLE gamepads or unidentified connections
+    if (connected && hqClientVerified && conHandle != HCI_CON_HANDLE_INVALID) {
         uint32_t now = millis();
         uint32_t timeSinceActivity = now - lastBleActivity;
         
@@ -299,6 +301,7 @@ void BLEServer::update() {
             
             // Clean up local state immediately
             connected = false;
+            hqClientVerified = false;
             txNotifyEnabled = false;
             pendingMessageUpdate = false;
             flushBleTxQueue();
@@ -564,8 +567,19 @@ void BLEServer::onHciEvent(uint8_t packetType, uint16_t channel, uint8_t* packet
         case HCI_EVENT_LE_META: {
             const uint8_t subevent = hci_event_le_meta_get_subevent_code(packet);
             if (subevent == HCI_SUBEVENT_LE_CONNECTION_COMPLETE) {
-                conHandle = hci_subevent_le_connection_complete_get_connection_handle(packet);
+                uint16_t handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
+                uint8_t role = hci_subevent_le_connection_complete_get_role(packet);
+                
+                // role 0x00 = Central (we initiated, e.g. Bluepad32 connecting to a BLE gamepad)
+                // role 0x01 = Peripheral (remote initiated, e.g. HQ app connecting to us)
+                if (role != 0x01) {
+                    Logger::infof(MODULE, "LE connection as central (handle=0x%04X) - BLE gamepad, not HQ", handle);
+                    break;
+                }
+                
+                conHandle = handle;
                 connected = true;
+                hqClientVerified = false;
                 txNotifyEnabled = false;
                 pendingMessageUpdate = false;
                 lastBleActivity = millis();  // Reset activity timer on connect
@@ -615,7 +629,13 @@ void BLEServer::onHciEvent(uint8_t packetType, uint16_t channel, uint8_t* packet
             uint8_t reason = hci_event_disconnection_complete_get_reason(packet);
             uint16_t handle = hci_event_disconnection_complete_get_connection_handle(packet);
             
+            // Only handle disconnects for our HQ connection (ignore gamepad disconnects)
+            if (handle != conHandle || conHandle == HCI_CON_HANDLE_INVALID) {
+                break;
+            }
+            
             connected = false;
+            hqClientVerified = false;
             txNotifyEnabled = false;
             pendingMessageUpdate = false;
             flushBleTxQueue();
@@ -720,7 +740,11 @@ int BLEServer::attWriteCb(uint16_t conHandle, uint16_t attributeHandle, uint16_t
         if (offset + bufferSize <= sizeof(lastRx)) {
             memcpy(lastRx + offset, buffer, bufferSize);
             lastRxLen = offset + bufferSize;
-            lastBleActivity = millis();  // Update activity timer on data received
+            if (!hqClientVerified) {
+                hqClientVerified = true;
+                Logger::info(MODULE, "HQ client verified (GATT write on RX characteristic)");
+            }
+            lastBleActivity = millis();
             
             Logger::debugf(MODULE, "RX write: %u bytes", bufferSize);
             
@@ -738,7 +762,11 @@ int BLEServer::attWriteCb(uint16_t conHandle, uint16_t attributeHandle, uint16_t
         if (bufferSize >= 2) {
             uint16_t cccdValue = little_endian_read_16(buffer, 0);
             txNotifyEnabled = (cccdValue & 0x0001) != 0;
-            lastBleActivity = millis();  // Update activity timer - CCCD write is valid connection activity
+            if (!hqClientVerified) {
+                hqClientVerified = true;
+                Logger::info(MODULE, "HQ client verified (CCCD subscription)");
+            }
+            lastBleActivity = millis();
             Logger::infof(MODULE, "TX notifications %s", txNotifyEnabled ? "enabled" : "disabled");
         }
         return 0;

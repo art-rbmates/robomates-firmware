@@ -33,6 +33,7 @@ public:
 private:
     
     static bool connected;
+    static bool hqClientVerified;  // True once the central writes to GATT (proves it's HQ, not a gamepad)
     static uint16_t conHandle;
     static uint16_t txValueHandle;
     static uint16_t rxValueHandle;
